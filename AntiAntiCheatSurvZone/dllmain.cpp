@@ -66,6 +66,7 @@ bool __fastcall HOOK_RakPeer_RPC(void* dis, void* EDX, int* uniqueID, BitStream*
 		parameters->SetWriteOffset(parameters->GetReadOffset());
 		parameters->Write(static_cast<UINT8>(strlen("0.3.7-R3")));
 		parameters->Write("0.3.7-R3", strlen("0.3.7-R3"));
+		delete[] authKey, nickname;
 	}
 	return fpRPC(dis, EDX, uniqueID, parameters, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13);
 }
@@ -129,6 +130,9 @@ void HandleRPCPacketFunc(unsigned char id, RPCParameters* rpcParams, void(*callb
 		return;
 	}
 	else {
+		if (isHooked) {
+			return;
+		}
 		callback(rpcParams);
 	}
 }
@@ -146,7 +150,10 @@ uint8_t _declspec (naked) hook_handle_rpc_packet(void)
 
 	if (isHooked == false) {
 		__asm popad;
-		__asm add esp, 4 // overwritten code
+		__asm add esp, 4
+	}
+	else {
+		__asm popad
 	}
 	__asm jmp hkExitRPC;
 }
@@ -191,9 +198,10 @@ __declspec(naked) void HK_ReadMemory(void) {
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call,LPVOID lpReserved) {
     if (ul_reason_for_call == DLL_PROCESS_ATTACH)
     {
+		DWORD oldProt;
 		MH_Initialize();
 
-		DWORD oldProt;
+		
 		MODULEINFO SAMPmoduleInfo;
 		hSAMPModule = GetModuleHandle(L"samp.dll");
 		hGTAModule = GetModuleHandle(L"gta_sa.exe");
@@ -214,19 +222,26 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call,LPVOID lpReserve
 
 			if (*reinterpret_cast<BYTE*>(dwSampModule + 0x3743D) == 0xE9) {
 				isHooked = true;
-				hkExitRPC = *reinterpret_cast<UINT32*>(dwSampModule + 0x3743D + 1);
+				hkExitRPC = dwSampModule + 0x3743D + 5 + *reinterpret_cast<UINT32*>(dwSampModule + 0x3743D + 1);
 			}
 			else {
 				hkExitRPC = dwSampModule + 0x37443;
 			}
 			if (*reinterpret_cast<BYTE*>(dwSampModule + 0x373C9) == 0xE9) {
-				hkExitRPC2 = *reinterpret_cast<UINT32*>(dwSampModule + 0x373C9 + 1);
+				hkExitRPC2 = dwSampModule + 0x373C9 + 5 + *reinterpret_cast<UINT32*>(dwSampModule + 0x373C9 + 1);
 			}
 			else {
 				hkExitRPC2 = dwSampModule + 0x37451;
 			}
 			MH_CreateAndEnableHook(dwSampModule + 0x3743D, &hook_handle_rpc_packet, NULL);
+			VirtualProtect(reinterpret_cast<LPVOID>(dwSampModule + 0x3743D + 5), 1, PAGE_READWRITE, &oldProt);
+			*reinterpret_cast<BYTE*>(dwSampModule + 0x3743D + 5) = 0x90;
+			VirtualProtect(reinterpret_cast<LPVOID>(dwSampModule + 0x3743D + 5), 1, oldProt, &oldProt);
 			MH_CreateAndEnableHook(dwSampModule + 0x373C9, &hook_handle_rpc_packet2, NULL);
+			VirtualProtect(reinterpret_cast<LPVOID>(dwSampModule + 0x373C9 + 5), 3, PAGE_READWRITE, &oldProt);
+			*reinterpret_cast<BYTE*>(dwSampModule + 0x373C9 + 5) = 0x90;
+			*reinterpret_cast<unsigned __int16*>(dwSampModule + 0x373C9 + 5 + 1) = 0x9090;
+			VirtualProtect(reinterpret_cast<LPVOID>(dwSampModule + 0x373C9 + 5), 3, oldProt, &oldProt);
 			MH_CreateAndEnableHook(dwSampModule + 0x36C30, &HOOK_RakPeer_RPC, reinterpret_cast<LPVOID*>(&fpRPC));
 		}
 		else {
